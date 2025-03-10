@@ -1,6 +1,7 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const path = require('path');
+const url = require('url');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,25 +10,31 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Proxy middleware
-app.use('/proxy', createProxyMiddleware({
-    target: 'https://www.example.com', // Default target (will be replaced dynamically)
-    changeOrigin: true,
-    pathRewrite: {
-        '^/proxy/': '', // Remove "/proxy" prefix from the request URL
-    },
-    onProxyReq: (proxyReq, req) => {
-        const targetUrl = req.query.url;
-        if (targetUrl) {
-            proxyReq.path = targetUrl.replace(/^https?:\/\//, ''); // Rewrite path to actual URL
-        }
+app.use('/proxy', (req, res, next) => {
+    const targetUrl = req.query.url;
+
+    if (!targetUrl) {
+        return res.status(400).send('Error: No URL provided');
     }
-}));
+
+    // Parse the target URL
+    const parsedUrl = url.parse(targetUrl);
+    const target = `${parsedUrl.protocol}//${parsedUrl.host}`;
+
+    // Create a new proxy middleware dynamically
+    createProxyMiddleware({
+        target,
+        changeOrigin: true,
+        ws: true,
+        pathRewrite: {
+            '^/proxy': '', // Remove "/proxy" from the request path
+        },
+        onError: (err, req, res) => {
+            res.status(500).send('Proxy Error: Unable to fetch the requested URL.');
+        }
+    })(req, res, next);
+});
 
 // Catch-all route to serve index.html
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.listen(PORT, () => {
-    console.log(`Proxy server running on http://localhost:${PORT}`);
-});
+    res.sendFile(path.join(__
